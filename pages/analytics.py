@@ -78,6 +78,7 @@ def layout():
                         ],
                         curveType = "linear",
                         tickLine = "xy",
+                        strokeDasharray = "0 10",
                         withXAxis = False,
                         withYAxis = False,
                         withDots = False,
@@ -94,7 +95,7 @@ def layout():
                         label = None,
                         pushOnOverlap = False,
                         color = "gray.3",
-                        pt = 10,
+                        pt = 0,
                         px = "md",
                     ),
                 ],
@@ -201,33 +202,43 @@ def update_chart_data(input):
     Output("share_price_slider", "max"),
     Output("share_price_slider", "value"),
     Output("share_price_chart", "yAxisProps"),
+    Output("share_price_chart", "referenceLines", allow_duplicate = True),
     
     Input("share_price_chart", "data"),
+    State("share_price_chart", "referenceLines"),
     prevent_initial_call = True
 )
-def update_chart_props(chart_data):
+def update_chart_props(chart_data, referenceLines):
+
     slider_max = len(chart_data) - 1
     slider_value = [0, slider_max]
 
     df = pd.DataFrame(chart_data)
-    yAxisProps = {"domain": [df["price"].min(), df["price"].max()]}
-    
-    return slider_max, slider_value, yAxisProps
+    yAxisProps = {"domain": [df["price"].min(), df["price"].max()], "padding": {"top": 20, "bottom": 20}}
+
+    referenceLines_output = []
+    if referenceLines:
+        for line in referenceLines:
+            if "x" in line: referenceLines_output.append(line)
+
+    referenceLines_output += [
+        {"y": df["price"].min(), "label": df["price"].min()},
+        {"y": df["price"].max(), "label": df["price"].max()}
+    ]
+
+    return slider_max, slider_value, yAxisProps, referenceLines_output
 
 
 @dash.callback(
-    Output("share_price_chart", "referenceLines"),
     Output("price_delta", "children"),
+    Output("share_price_chart", "referenceLines", allow_duplicate = True),
     
     Input("share_price_slider", "value"),
     State("share_price_chart", "data"),
+    State("share_price_chart", "referenceLines"),
     prevent_initial_call = True
 )
-def slider_change_processing(slider_value, chart_data):
-    referenceLines = [
-        {"x": chart_data[slider_value[0]]["datetime"]},
-        {"x": chart_data[slider_value[1]]["datetime"]}
-    ]
+def slider_change_processing(slider_value, chart_data, referenceLines):
 
     date_interval = chart_data[slider_value[0]]["datetime"] + " - " + chart_data[slider_value[1]]["datetime"]
     delta_string = functions.get_delta_string(chart_data[slider_value[0]]["price"], chart_data[slider_value[1]]["price"], "₽")
@@ -237,7 +248,16 @@ def slider_change_processing(slider_value, chart_data):
     price_delta_info.append(dmc.Text(children = date_interval, fz = "sm", fw = 500))
     price_delta_info.append(dmc.Text(children = delta_string, fz = "h2", fw = 650, c = delta_color, ta = "right"))
 
-    return referenceLines, price_delta_info
+    referenceLines_output = []
+    for line in referenceLines:
+        if "y" in line: referenceLines_output.append(line)
+
+    referenceLines_output += [
+        {"x": chart_data[slider_value[0]]["datetime"]},
+        {"x": chart_data[slider_value[1]]["datetime"]}
+    ]
+
+    return price_delta_info, referenceLines_output
 
 
 
