@@ -16,9 +16,7 @@ import pandas as pd
 import numpy as np
 from dash_iconify import DashIconify
 
-from tinkoff.invest import Client, CandleInterval, SecurityTradingStatus
-from tinkoff.invest.constants import INVEST_GRPC_API_SANDBOX
-from tinkoff.invest.utils import now
+from tinkoff.invest import CandleInterval
 
 dotenv.load_dotenv()
 TOKEN = os.getenv("INVEST_TOKEN")
@@ -78,14 +76,14 @@ def layout():
                         ],
                         curveType = "linear",
                         tickLine = "xy",
-                        strokeDasharray = "0 10",
+                        gridAxis = "none",
                         withXAxis = False,
                         withYAxis = False,
                         withDots = False,
                         unit = "₽",
                         pt = "md",
                         px = "md",
-                        h = 300
+                        h = 350
                     ),
                     dmc.RangeSlider(
                         id = "share_price_slider",
@@ -182,7 +180,7 @@ def update_chart_data(input):
     end_dt = dt_now
 
     if not isinstance(ctx.triggered_id, str) and ctx.triggered_id["type"] == "nav_button":
-        end_dt = functions.local_to_utc(datetime.strptime(input["chart_data"][-1]["datetime"], "%d %b %Y %H:%M:%S"))
+        end_dt = functions.local_to_utc(datetime.strptime(input["chart_data"][-1]["datetime"], "%d %b %Y %H:%M"))
         if ctx.triggered_id["index"] == "refresh": end_dt = dt_now
         if ctx.triggered_id["index"] == "first": end_dt = start_dt + time_interval
         if ctx.triggered_id["index"] == "last": end_dt = dt_now

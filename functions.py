@@ -10,13 +10,13 @@ import json
 
 from dateutil import tz
 from dateutil.relativedelta import relativedelta
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 
 import dotenv
 import pandas as pd
 import numpy as np
 
-from tinkoff.invest import Client, CandleInterval, SecurityTradingStatus, InstrumentIdType
+from tinkoff.invest import Client, InstrumentIdType
 from tinkoff.invest.constants import INVEST_GRPC_API_SANDBOX
 from tinkoff.invest.utils import now
 
@@ -127,8 +127,9 @@ def get_chart_data(figi, candle_interval, time_interval, end_datetime = None):
         candles = client.get_all_candles(figi=figi, from_=start_datetime, to=end_datetime, interval=candle_interval)
         for candle in candles:
             candle_data = {}
-            candle_data["datetime"] = utc_to_local(candle.time, "Russia/Moscow").strftime("%d %b %Y %H:%M:%S")
+            candle_data["datetime"] = utc_to_local(candle.time, "Russia/Moscow").strftime("%d %b %Y %H:%M")
             candle_data["price"] = quotation_to_float(candle.open)
+            candle_data["delta"] = (quotation_to_float(candle.close) - quotation_to_float(candle.open)) / quotation_to_float(candle.high) * 100
             chart_data.append(candle_data)
 
     return chart_data
@@ -164,4 +165,7 @@ def get_delta_color(delta_string):
     
     return "black"
 
+
+
+    
 
