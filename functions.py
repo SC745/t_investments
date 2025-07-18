@@ -23,7 +23,6 @@ from tinkoff.invest.utils import now
 dotenv.load_dotenv()
 TOKEN = os.getenv("INVEST_TOKEN")
 
-
 #Кодировка для json
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -34,7 +33,6 @@ class NpEncoder(json.JSONEncoder):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         return super(NpEncoder, self).default(obj)
-
 
 
 #Получить временные интервалы для акции
@@ -117,34 +115,22 @@ def get_share_selectdata():
 
     return selectdata
 
-#Получить данные для графика
-def get_chart_data(figi, candle_interval, time_interval, end_datetime = None):
+#Получить датафрейм свечей для построения графиков
+def get_candles_df(figi, candle_interval, time_interval, end_datetime = None):
     if end_datetime == None: end_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC)
     start_datetime = end_datetime - time_interval
 
-    chart_data = []
+    candles_df = []
     with Client(TOKEN) as client: 
         candles = client.get_all_candles(figi=figi, from_=start_datetime, to=end_datetime, interval=candle_interval)
         for candle in candles:
             candle_data = {}
             candle_data["datetime"] = utc_to_local(candle.time, "Russia/Moscow").strftime("%d %b %Y %H:%M")
             candle_data["price"] = quotation_to_float(candle.open)
-            candle_data["delta"] = (quotation_to_float(candle.close) - quotation_to_float(candle.open)) / quotation_to_float(candle.high) * 100
-            chart_data.append(candle_data)
+            candle_data["delta"] = (quotation_to_float(candle.close) - quotation_to_float(candle.open)) / quotation_to_float(candle.open) * 100
+            candles_df.append(candle_data)
 
-    return chart_data
-
-#Преобразовать quotation во float
-def quotation_to_float(quotation):
-    return quotation.units + math_round(quotation.nano / pow(10, 9), 9)
-
-def utc_to_local(utc_dt, timezone):
-    local_tz = tz.gettz(timezone)
-    local_dt = utc_dt.astimezone(local_tz)
-    return local_dt
-
-def local_to_utc(local_dt):
-    return local_dt.astimezone(pytz.utc)
+    return pd.DataFrame(candles_df)
 
 #Получить разницу по периоду
 def get_delta_string(start_price, end_price, unit):
@@ -165,7 +151,30 @@ def get_delta_color(delta_string):
     
     return "black"
 
+#Исключить выбросы по правилу трех сигм
+def remove_outliers(data_df, column):
+    std = np.std(data_df[column], ddof=1)
+    med = np.median(data_df[column])
+    lower_bound = med - 3 * std
+    upper_bound = med + 3 * std
+
+    new_data = data_df[(data_df[column] >= lower_bound) & (data_df[column] <= upper_bound)]
+    outliers = data_df[(data_df[column] < lower_bound) | (data_df[column] > upper_bound)]
+
+    #print(f"{len(outliers)} of {len(data)} values removed")
+
+    return new_data
 
 
-    
+#Преобразования -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+def quotation_to_float(quotation):
+    return quotation.units + math_round(quotation.nano / pow(10, 9), 9)
+
+def utc_to_local(utc_dt, timezone):
+    local_tz = tz.gettz(timezone)
+    local_dt = utc_dt.astimezone(local_tz)
+    return local_dt
+
+def local_to_utc(local_dt):
+    return local_dt.astimezone(pytz.utc)
