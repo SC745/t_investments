@@ -115,22 +115,7 @@ def get_share_selectdata():
 
     return selectdata
 
-#Получить датафрейм свечей для построения графиков
-def get_candles_df(figi, candle_interval, time_interval, end_datetime = None):
-    if end_datetime == None: end_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC)
-    start_datetime = end_datetime - time_interval
 
-    candles_df = []
-    with Client(TOKEN) as client: 
-        candles = client.get_all_candles(figi=figi, from_=start_datetime, to=end_datetime, interval=candle_interval)
-        for candle in candles:
-            candle_data = {}
-            candle_data["datetime"] = utc_to_local(candle.time, "Russia/Moscow").strftime("%d %b %Y %H:%M")
-            candle_data["price"] = quotation_to_float(candle.open)
-            candle_data["delta"] = (quotation_to_float(candle.close) - quotation_to_float(candle.open)) / quotation_to_float(candle.open) * 100
-            candles_df.append(candle_data)
-
-    return pd.DataFrame(candles_df)
 
 #Получить разницу по периоду
 def get_delta_string(start_price, end_price, unit):
@@ -178,3 +163,80 @@ def utc_to_local(utc_dt, timezone):
 
 def local_to_utc(local_dt):
     return local_dt.astimezone(pytz.utc)
+
+
+#Логика
+
+def get_growth_coef(start_price, end_price):
+    return end_price / start_price - 1
+
+def get_sell_coef_limit(comission, growth_coef):
+    return 1 - (1 + comission) / ((1 - comission) * (1 + growth_coef))
+
+
+
+
+#Получить датафрейм свечей для построения графиков
+def get_candles_df(figi, candle_interval, time_interval, end_datetime = None):
+    if end_datetime == None: end_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC)
+    start_datetime = end_datetime - time_interval
+
+    candles_df = []
+    with Client(TOKEN) as client: 
+        candles = client.get_all_candles(figi=figi, from_=start_datetime, to=end_datetime, interval=candle_interval)
+        for candle in candles:
+            candle_data = {}
+            candle_data["datetime"] = utc_to_local(candle.time, "Russia/Moscow").strftime("%d %b %Y %H:%M")
+            candle_data["open"] = quotation_to_float(candle.open)
+            candle_data["close"] = quotation_to_float(candle.close)
+            candles_df.append(candle_data)
+
+    return pd.DataFrame(candles_df)
+
+#Получить историю баланса на основе данных
+def get_balance_history(candles_df, purchase_coef_limit, part_of_sell_limit, comission):
+    status = {"broker": True, "purchase_price": None, "growth_coef": None, "sell_coef_limit": None}
+
+    balance_history = []
+    for index, candle in candles_df.iterrows():
+        if status["broker"]:
+            balance = balance_history[index - 1] if index > 0 else 1
+
+            if candle["vector"] > purchase_coef_limit:
+                status["purchase_price"] = candle["close"]
+                status["growth_coef"] = 0
+                status["sell_coef_limit"] = get_sell_coef_limit(comission, status["growth_coef"])
+                status["broker"] = False
+                balance -= balance * comission
+                #print(f"Покупка: {candles_df.iloc[index + 1]['datetime']}")
+        else:
+            balance += candle["close"] / candle["open"] - 1
+            
+            max_price = status["purchase_price"] * (1 + status["growth_coef"])
+            if candle["close"] > max_price:
+                status["growth_coef"] = get_growth_coef(status["purchase_price"], candle["close"])
+                status["sell_coef_limit"] = get_sell_coef_limit(comission, status["growth_coef"]) * part_of_sell_limit
+            else:
+                sell_coef = 1 - candle["close"] / max_price
+                if sell_coef > status["sell_coef_limit"]:
+                    status["broker"] = True
+                    balance -= balance * comission
+                    #print(f"Продажа: {candles_df.iloc[index + 1]['datetime']}")
+
+        balance_history.append(balance)
+
+    return balance_history
+
+#Получить вектора свечей
+def get_vectors(candles_df, vector_size):
+    vectors = []
+    vector_data = []
+    for index, candle in candles_df.iterrows():
+        vector_data.append(candle["close"] / candle["open"] - 1)
+        if index > vector_size: vector_data.remove(vector_data[0])
+        vector = sum(vector_data) / len(vector_data)
+        vectors.append(vector * 100)
+
+    return vectors
+
+

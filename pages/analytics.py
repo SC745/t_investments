@@ -88,8 +88,9 @@ def layout():
                 children = [
                     dmc.TabsList(
                         children = [
-                            dmc.TabsTab("Курс акции", value = "share_price", leftSection = DashIconify(icon="mingcute:chart-line-fill")),
-                            dmc.TabsTab("Изменение цены", value = "price_dist", leftSection = DashIconify(icon="mingcute:chart-bar-line")),
+                            dmc.TabsTab("Курс", value = "course", leftSection = DashIconify(icon="mingcute:chart-line-fill")),
+                            dmc.TabsTab("Распределение", value = "distribution", leftSection = DashIconify(icon="mingcute:chart-bar-line")),
+                            dmc.TabsTab("Корреляция", value = "correlation", leftSection = DashIconify(icon="mingcute:chart-bar-line")),
                             dmc.TabsTab("Настройки", value = "settings", leftSection = DashIconify(icon="mingcute:settings-3-line")),
                         ],
                         px = "md",
@@ -101,7 +102,9 @@ def layout():
                                 dataKey = "datetime",
                                 data = [],
                                 series = [
-                                    {"name": "price", "color": "blue.7"},
+                                    {"name": "open", "color": "blue.7"},
+                                    {"name": "balance", "color": "red.7", "yAxisId": "right"},
+                                    #{"name": "vector", "color": "green.7"},
                                 ],
                                 curveType = "linear",
                                 tickLine = "xy",
@@ -109,7 +112,6 @@ def layout():
                                 withXAxis = False,
                                 withYAxis = False,
                                 withDots = False,
-                                unit = "₽",
                                 pt = "md",
                                 px = "md",
                                 h = 700
@@ -125,7 +127,7 @@ def layout():
                                 px = "md",
                             ),
                         ],
-                        value = "share_price"
+                        value = "course"
                     ),
                     dmc.TabsPanel(
                         children = [
@@ -138,14 +140,21 @@ def layout():
                             ),
                             
                         ],
-                        value = "price_dist"
+                        value = "distribution"
                     ),
                     dmc.TabsPanel(
                         children = [
-                            dmc.Text(children = "Данные", fz = "h3", fw = 500, pb = "md"),
+                            
+                        ],
+                        value = "correlation"
+                    ),
+                    dmc.TabsPanel(
+                        children = [
+                            dmc.Text(children = "График курса", fz = "h3", fw = 500, pb = "md"),
                             dmc.Stack(
                                 children = [
                                     dmc.Checkbox(id = "standard_candles", label = "Использовать стандартные свечи"),
+                                    dmc.NumberInput(id = "vector_size", label = "Размер вектора", min = 1, max = 10, allowDecimal = False),
                                 ],
                                 gap = "sm",
                                 pb = "md"
@@ -153,6 +162,7 @@ def layout():
                             dmc.Text("График распределения", fz = "h3", fw = 500, pb = "md"),
                             dmc.Stack(
                                 children = [
+                                    dmc.Select(id = {"type": "select", "index": "vector_vals"}, label = "Значения", w = 150),
                                     dmc.Checkbox(id = {"category": "dist_chart_props", "index": "rm_outliers"}, label = "Исключать выбросы"),
                                     dmc.Checkbox(id = {"category": "dist_chart_props", "index": "show_hist"}, label = "Показывать гистограмму"),
                                     dmc.Checkbox(id = {"category": "dist_chart_props", "index": "show_curve"}, label = "Показывать кривую"),
@@ -176,17 +186,21 @@ def layout():
     return layout
 
 
+
 @dash.callback(
     output = {
         "select_data": {
             "share": Output({"type": "select", "index": "share"}, "data"),
             "interval": Output({"type": "select", "index": "interval"}, "data"),
             "candle": Output({"type": "select", "index": "candle"}, "data"),
+            "vector_vals": Output({"type": "select", "index": "vector_vals"}, "data"),
         },
         "select_values": {
             "share": Output({"type": "select", "index": "share"}, "value"),
             "interval": Output({"type": "select", "index": "interval"}, "value"),
             "candle": Output({"type": "select", "index": "candle"}, "value", allow_duplicate = True),
+            "vector_vals": Output({"type": "select", "index": "vector_vals"}, "value"),
+            "vector_size": Output("vector_size", "value"),
         },
         "checkbox_states": {
             "standard_candles": Output("standard_candles", "checked"),
@@ -201,6 +215,7 @@ def layout():
     prevent_initial_call = True
 )
 def initial_callback(input):
+    session.clear()
     output = {}
     output["select_data"] = {}
     output["select_data"]["share"] = functions.get_share_selectdata()
@@ -222,6 +237,11 @@ def initial_callback(input):
         {"label": "2 минуты", "value": "2m"},
         {"label": "1 минута", "value": "1m"},
     ]
+    output["select_data"]["vector_vals"] = [
+        {"label": "Все", "value": "all"},
+        {"label": "Положительные", "value": "positive"},
+        {"label": "Отрицательные", "value": "negative"},
+    ]
 
     if not "data" in session:
         session_data = {}
@@ -230,6 +250,8 @@ def initial_callback(input):
         session_data["select_values"]["share"] = output["select_data"]["share"][0]["value"]
         session_data["select_values"]["interval"] = "1m"
         session_data["select_values"]["candle"] = "30m"
+        session_data["select_values"]["vector_vals"] = "all"
+        session_data["select_values"]["vector_size"] = 1
 
         session_data["distplot_props"] = {}
         session_data["distplot_props"]["rm_outliers"] = False
@@ -248,6 +270,8 @@ def initial_callback(input):
     output["select_values"]["share"] = session_data["select_values"]["share"]
     output["select_values"]["interval"] = session_data["select_values"]["interval"]
     output["select_values"]["candle"] = session_data["select_values"]["candle"]
+    output["select_values"]["vector_vals"] = session_data["select_values"]["vector_vals"]
+    output["select_values"]["vector_size"] = session_data["select_values"]["vector_size"]
 
     session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
 
@@ -270,6 +294,7 @@ def initial_callback(input):
                 "share": Input({"type": "select", "index": "share"}, "value"),
                 "interval": State({"type": "select", "index": "interval"}, "value"),
                 "candle": Input({"type": "select", "index": "candle"}, "value"),
+                "vector_size": Input("vector_size", "value"),
             },
             "nav_buttons": Input({"type": "nav_button", "index": ALL}, "n_clicks"),
             "chart_data": State("price_chart", "data"),
@@ -278,7 +303,7 @@ def initial_callback(input):
     prevent_initial_call = True
 )
 def update_chart_data(input):
-    if not input["select_values"]["share"]: raise PreventUpdate
+    if not (input["select_values"]["share"] and input["select_values"]["interval"]): raise PreventUpdate
 
     time_interval = chart_props["standard_values"][input["select_values"]["interval"]]["interval"]
     candle_interval = chart_props["candle_intervals"][input["select_values"]["candle"]]
@@ -300,9 +325,14 @@ def update_chart_data(input):
         session_data = json.loads(session["data"])
         session_data["select_values"]["share"] = input["select_values"]["share"]
         session_data["select_values"]["candle"] = input["select_values"]["candle"]
+        session_data["select_values"]["vector_size"] = input["select_values"]["vector_size"]
         session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
 
     candles_df = functions.get_candles_df(input["select_values"]["share"], candle_interval, time_interval, end_dt)
+    candles_df["vector"] = functions.get_vectors(candles_df, input["select_values"]["vector_size"])
+
+    positive_vectors = candles_df[candles_df["vector"] > 0]["vector"]
+    candles_df["balance"] = functions.get_balance_history(candles_df, np.percentile(positive_vectors, 90), 0, 0.0003)
 
     output = {}
     output["nav_buttons_states"] = {}
@@ -317,6 +347,7 @@ def update_chart_data(input):
     Output("share_price_slider", "max"),
     Output("share_price_slider", "value"),
     Output("price_chart", "yAxisProps"),
+    Output("price_chart", "rightYAxisProps"),
     Output("price_chart", "referenceLines", allow_duplicate = True),
     
     Input("price_chart", "data"),
@@ -328,7 +359,8 @@ def update_chart_props(chart_data, referenceLines):
     slider_value = [0, slider_max]
 
     df = pd.DataFrame(chart_data)
-    yAxisProps = {"domain": [df["price"].min(), df["price"].max()], "padding": {"top": 20, "bottom": 20}}
+    yAxisProps = {"domain": [df["open"].min(), df["open"].max()], "padding": {"top": 20, "bottom": 20}}
+    rightYAxisProps = {"domain": [df["balance"].min(), df["balance"].max()], "padding": {"top": 20, "bottom": 20}}
 
     referenceLines_output = []
     if referenceLines:
@@ -336,30 +368,33 @@ def update_chart_props(chart_data, referenceLines):
             if "x" in line: referenceLines_output.append(line)
 
     referenceLines_output += [
-        {"y": df["price"].min(), "label": df["price"].min()},
-        {"y": df["price"].max(), "label": df["price"].max()}
+        {"y": df["open"].min(), "label": df["open"].min()},
+        {"y": df["open"].max(), "label": df["open"].max()}
     ]
 
-    return slider_max, slider_value, yAxisProps, referenceLines_output
+    return slider_max, slider_value, yAxisProps, rightYAxisProps, referenceLines_output
 
 
 @callback(
     Output("price_delta", "children"),
     Output("price_chart", "referenceLines", allow_duplicate = True),
     Output("dist_chart", "figure", allow_duplicate = True),
+    #Output("corr_chart", "data"),
     
     Input("share_price_slider", "value"),
+    Input({"type": "select", "index": "vector_vals"}, "value"),
     Input({"category": "dist_chart_props", "index": ALL}, "checked"),
     Input({"category": "dist_chart_props", "index": ALL}, "id"),
     State("price_chart", "data"),
     State("price_chart", "referenceLines"),
+    State("vector_size", "value"),
     prevent_initial_call = True
 )
-def slider_change_processing(slider_value, checkbox_states, checkbox_ids, chart_data, referenceLines):
+def slider_change_processing(slider_value, vector_vals, checkbox_states, checkbox_ids, chart_data, referenceLines, vector_size):
     if not slider_value: raise PreventUpdate
 
     date_interval = chart_data[slider_value[0]]["datetime"] + " - " + chart_data[slider_value[1]]["datetime"]
-    delta_string = functions.get_delta_string(chart_data[slider_value[0]]["price"], chart_data[slider_value[1]]["price"], "₽")
+    delta_string = functions.get_delta_string(chart_data[slider_value[0]]["open"], chart_data[slider_value[1]]["open"], "₽")
     delta_color = functions.get_delta_color(delta_string)
 
     price_delta_info = []
@@ -378,19 +413,22 @@ def slider_change_processing(slider_value, checkbox_states, checkbox_ids, chart_
     candles_df = pd.DataFrame(chart_data)
     candles_df = candles_df[(candles_df.index >= slider_value[0]) & (candles_df.index <= slider_value[1])]
     checkboxes = {id["index"]: state for id, state in zip(checkbox_ids, checkbox_states)}
-    if checkboxes["rm_outliers"]: candles_df = functions.remove_outliers(candles_df, "delta")
+
+    if vector_vals == "positive": candles_df = candles_df.loc[candles_df["vector"] > 0]
+    if vector_vals == "negative": candles_df = candles_df.loc[candles_df["vector"] < 0]
+    if checkboxes["rm_outliers"]: candles_df = functions.remove_outliers(candles_df, "vector")
 
     fig = ff.create_distplot(
-        hist_data = [list(candles_df["delta"])], 
-        group_labels = ["Delta"], 
+        hist_data = [list(candles_df["vector"])], 
+        group_labels = ["vector"], 
         rug_text = [list(candles_df["datetime"])], 
         curve_type = "kde", 
-        bin_size = (candles_df["delta"].max() - candles_df["delta"].min()) / 50, 
+        bin_size = (candles_df["vector"].max() - candles_df["vector"].min()) / 50, 
         show_hist = checkboxes["show_hist"],
         show_curve = checkboxes["show_curve"],
         show_rug = checkboxes["show_rug"],
     )
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend = False, template = "mantine_light", height = 700)
+    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend = False, height = 700)
 
     session_data = json.loads(session["data"])
     for key in checkboxes: session_data["distplot_props"][key] = checkboxes[key]
@@ -409,6 +447,7 @@ def slider_change_processing(slider_value, checkbox_states, checkbox_ids, chart_
     prevent_initial_call = True
 )
 def set_candle(is_standard, interval, old_candle_value):
+    if not (interval and old_candle_value): raise PreventUpdate
     candle_select_disabled = is_standard
     if is_standard: new_candle_value = chart_props["standard_values"][interval]["candle"]["value"]
     else: new_candle_value = old_candle_value
@@ -421,4 +460,3 @@ def set_candle(is_standard, interval, old_candle_value):
     return candle_select_disabled, new_candle_value
 
 
-    
