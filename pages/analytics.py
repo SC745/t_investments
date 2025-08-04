@@ -61,7 +61,6 @@ def layout():
                         children = [
                             dmc.Select(id = {"type": "select", "index": "share"}, label = "Акция", clearable = True, searchable = True, w = 300),
                             dmc.Select(id = {"type": "select", "index": "interval"}, label = "Временной промежуток"),
-                            dmc.Select(id = {"type": "select", "index": "candle"}, label = "Интервал свечи"),
                             dmc.ActionIcon(id = {"type": "nav_button", "index": "first"}, children = DashIconify(icon = "mingcute:arrows-left-fill", width = 20), size = "input-sm"),
                             dmc.ActionIcon(id = {"type": "nav_button", "index": "prev"}, children = DashIconify(icon = "mingcute:left-fill", width = 20), size = "input-sm"),
                             dmc.ActionIcon(id = {"type": "nav_button", "index": "refresh"}, children = DashIconify(icon = "mingcute:refresh-3-fill", width = 20), size = "input-sm"),
@@ -69,7 +68,7 @@ def layout():
                             dmc.ActionIcon(id = {"type": "nav_button", "index": "last"}, children = DashIconify(icon = "mingcute:arrows-right-fill", width = 20), size = "input-sm"),
                         ],
                         gap = "md",
-                        align="flex-end"
+                        align = "flex-end"
                     ),
                     dmc.Box(
                         id = "price_delta",
@@ -138,23 +137,30 @@ def layout():
                                 pt = "md",
                                 px = "md",
                             ),
-                            
                         ],
                         value = "distribution"
                     ),
                     dmc.TabsPanel(
                         children = [
-                            
+                            dmc.ScatterChart(
+                                id = "corr_chart",
+                                dataKey = {"x": "vector", "y": "delta"},
+                                data = [],
+                                pt = "md",
+                                px = "md",
+                                h = 700
+                            ),
                         ],
                         value = "correlation"
                     ),
                     dmc.TabsPanel(
                         children = [
-                            dmc.Text(children = "График курса", fz = "h3", fw = 500, pb = "md"),
+                            dmc.Text(children = "Общие", fz = "h3", fw = 500, pb = "md"),
                             dmc.Stack(
                                 children = [
                                     dmc.Checkbox(id = "standard_candles", label = "Использовать стандартные свечи"),
-                                    dmc.NumberInput(id = "vector_size", label = "Размер вектора", min = 1, max = 10, allowDecimal = False),
+                                    dmc.Select(id = {"type": "select", "index": "candle"}, label = "Интервал свечи", w = 200),
+                                    dmc.NumberInput(id = "vector_size", label = "Размер вектора", min = 1, max = 10, allowDecimal = False, w = 200),
                                 ],
                                 gap = "sm",
                                 pb = "md"
@@ -176,7 +182,7 @@ def layout():
                         px = "md"
                     )
                 ],
-                value = "share_price",
+                value = "course",
                 pt = "md",
             ),
         ],
@@ -312,26 +318,27 @@ def update_chart_data(input):
     start_dt = functions.get_share(input["select_values"]["share"]).first_1min_candle_date
     end_dt = dt_now
 
-    if ctx.triggered_id["type"] == "nav_button":
-        #Обработка нажатий кнопок верхней панели
-        end_dt = functions.local_to_utc(datetime.strptime(input["chart_data"][-1]["datetime"], "%d %b %Y %H:%M"))
-        if ctx.triggered_id["index"] == "refresh": end_dt = dt_now
-        if ctx.triggered_id["index"] == "first": end_dt = start_dt + time_interval
-        if ctx.triggered_id["index"] == "last": end_dt = dt_now
-        if ctx.triggered_id["index"] == "prev": end_dt = start_dt + time_interval if end_dt - time_interval < start_dt else end_dt - time_interval
-        if ctx.triggered_id["index"] == "next": end_dt = dt_now if end_dt + time_interval > dt_now else end_dt + time_interval
-    elif ctx.triggered_id["type"] == "select":
-        #Запись в хранилище сессии значений выпадающих списков
-        session_data = json.loads(session["data"])
-        session_data["select_values"]["share"] = input["select_values"]["share"]
-        session_data["select_values"]["candle"] = input["select_values"]["candle"]
-        session_data["select_values"]["vector_size"] = input["select_values"]["vector_size"]
-        session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
+    if isinstance(ctx.triggered_id, dict):
+        if ctx.triggered_id["type"] == "nav_button":
+            #Обработка нажатий кнопок верхней панели
+            end_dt = functions.local_to_utc(datetime.strptime(input["chart_data"][-1]["datetime"], "%d %b %Y %H:%M"))
+            if ctx.triggered_id["index"] == "refresh": end_dt = dt_now
+            if ctx.triggered_id["index"] == "first": end_dt = start_dt + time_interval
+            if ctx.triggered_id["index"] == "last": end_dt = dt_now
+            if ctx.triggered_id["index"] == "prev": end_dt = start_dt + time_interval if end_dt - time_interval < start_dt else end_dt - time_interval
+            if ctx.triggered_id["index"] == "next": end_dt = dt_now if end_dt + time_interval > dt_now else end_dt + time_interval
+        elif ctx.triggered_id["type"] == "select":
+            #Запись в хранилище сессии значений выпадающих списков
+            session_data = json.loads(session["data"])
+            session_data["select_values"]["share"] = input["select_values"]["share"]
+            session_data["select_values"]["candle"] = input["select_values"]["candle"]
+            session_data["select_values"]["vector_size"] = input["select_values"]["vector_size"]
+            session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
 
     candles_df = functions.get_candles_df(input["select_values"]["share"], candle_interval, time_interval, end_dt)
     candles_df["vector"] = functions.get_vectors(candles_df, input["select_values"]["vector_size"])
 
-    positive_vectors = candles_df[candles_df["vector"] > 0]["vector"]
+    positive_vectors = list(candles_df[candles_df["vector"] > 0]["vector"])
     candles_df["balance"] = functions.get_balance_history(candles_df, np.percentile(positive_vectors, 90), 0, 0.0003)
 
     output = {}
@@ -339,7 +346,7 @@ def update_chart_data(input):
     output["nav_buttons_states"]["next"] = output["nav_buttons_states"]["last"] = bool(end_dt >= dt_now)
     output["nav_buttons_states"]["prev"] = output["nav_buttons_states"]["first"] = bool(end_dt - time_interval <= start_dt)
     output["price_chart"] = candles_df.to_dict("records")
-    
+
     return output
 
 
@@ -376,49 +383,60 @@ def update_chart_props(chart_data, referenceLines):
 
 
 @callback(
-    Output("price_delta", "children"),
-    Output("price_chart", "referenceLines", allow_duplicate = True),
-    Output("dist_chart", "figure", allow_duplicate = True),
-    #Output("corr_chart", "data"),
-    
-    Input("share_price_slider", "value"),
-    Input({"type": "select", "index": "vector_vals"}, "value"),
-    Input({"category": "dist_chart_props", "index": ALL}, "checked"),
-    Input({"category": "dist_chart_props", "index": ALL}, "id"),
-    State("price_chart", "data"),
-    State("price_chart", "referenceLines"),
-    State("vector_size", "value"),
+    output = {
+        "price_delta_info": Output("price_delta", "children"),
+        "price_chart_lines": Output("price_chart", "referenceLines", allow_duplicate = True),
+        "dist_chart": Output("dist_chart", "figure"),
+        "corr_chart": Output("corr_chart", "data"),
+    },
+    inputs = {
+        "input": {
+            "slider_value": Input("share_price_slider", "value"),
+            "vector_vals": Input({"type": "select", "index": "vector_vals"}, "value"),
+            "checkbox_states": Input({"category": "dist_chart_props", "index": ALL}, "checked"),
+            "checkbox_ids": Input({"category": "dist_chart_props", "index": ALL}, "id"),
+            "price_chart_data": State("price_chart", "data"),
+            "price_chart_lines": State("price_chart", "referenceLines"),
+            "vector_size": State("vector_size", "value"),
+        }
+    },
     prevent_initial_call = True
 )
-def slider_change_processing(slider_value, vector_vals, checkbox_states, checkbox_ids, chart_data, referenceLines, vector_size):
-    if not slider_value: raise PreventUpdate
+def slider_change_processing(input):
+    if not input["slider_value"]: raise PreventUpdate
 
-    date_interval = chart_data[slider_value[0]]["datetime"] + " - " + chart_data[slider_value[1]]["datetime"]
-    delta_string = functions.get_delta_string(chart_data[slider_value[0]]["open"], chart_data[slider_value[1]]["open"], "₽")
+
+    #Подготовка данных
+    candles_df = pd.DataFrame(input["price_chart_data"])
+    candles_df = candles_df[(candles_df.index >= input["slider_value"][0]) & (candles_df.index <= input["slider_value"][1])]
+    checkboxes = {id["index"]: state for id, state in zip(input["checkbox_ids"], input["checkbox_states"])}
+
+    if input["vector_vals"] == "positive": candles_df = candles_df.loc[candles_df["vector"] > 0]
+    if input["vector_vals"] == "negative": candles_df = candles_df.loc[candles_df["vector"] < 0]
+    if checkboxes["rm_outliers"]: candles_df = functions.remove_outliers(candles_df, "vector")
+    candles_df.reset_index(inplace=True)
+
+    
+    #Информация о динамике изменения
+    date_interval = input["price_chart_data"][input["slider_value"][0]]["datetime"] + " - " + input["price_chart_data"][input["slider_value"][1]]["datetime"]
+    delta_string = functions.get_delta_string(input["price_chart_data"][input["slider_value"][0]]["open"], input["price_chart_data"][input["slider_value"][1]]["open"], "₽")
     delta_color = functions.get_delta_color(delta_string)
 
     price_delta_info = []
     price_delta_info.append(dmc.Text(children = date_interval, fz = "sm", fw = 500))
     price_delta_info.append(dmc.Text(children = delta_string, fz = "h2", fw = 650, c = delta_color, ta = "right"))
 
-    referenceLines_output = []
-    for line in referenceLines:
-        if "y" in line: referenceLines_output.append(line)
 
+    #Установка границ интервала
+    referenceLines_output = [line for line in input["price_chart_lines"] if "y" in line]
     referenceLines_output += [
-        {"x": chart_data[slider_value[0]]["datetime"]},
-        {"x": chart_data[slider_value[1]]["datetime"]}
+        {"x": input["price_chart_data"][input["slider_value"][0]]["datetime"]},
+        {"x": input["price_chart_data"][input["slider_value"][1]]["datetime"]}
     ]
 
-    candles_df = pd.DataFrame(chart_data)
-    candles_df = candles_df[(candles_df.index >= slider_value[0]) & (candles_df.index <= slider_value[1])]
-    checkboxes = {id["index"]: state for id, state in zip(checkbox_ids, checkbox_states)}
 
-    if vector_vals == "positive": candles_df = candles_df.loc[candles_df["vector"] > 0]
-    if vector_vals == "negative": candles_df = candles_df.loc[candles_df["vector"] < 0]
-    if checkboxes["rm_outliers"]: candles_df = functions.remove_outliers(candles_df, "vector")
-
-    fig = ff.create_distplot(
+    #Получение данных для графика распределения
+    distplot = ff.create_distplot(
         hist_data = [list(candles_df["vector"])], 
         group_labels = ["vector"], 
         rug_text = [list(candles_df["datetime"])], 
@@ -428,13 +446,33 @@ def slider_change_processing(slider_value, vector_vals, checkbox_states, checkbo
         show_curve = checkboxes["show_curve"],
         show_rug = checkboxes["show_rug"],
     )
-    fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend = False, height = 700)
+    distplot.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend = False, height = 700)
 
+
+    #Получение данных для графика корреляции
+    vectors = functions.get_vectors(candles_df, input["vector_size"])
+    vectors = vectors[input["vector_size"] - 1: -1]
+    deltas = functions.get_vectors(candles_df, 1)
+    deltas = vectors[input["vector_size"]:]
+
+    corr_chart_data = {}
+    corr_chart_data["name"] = "Корреляция значений"
+    corr_chart_data["color"] = "blue.7"
+    corr_chart_data["data"] = [{"vector": vector, "delta": delta} for vector, delta in zip(vectors, deltas)]
+
+
+    #Возврат
     session_data = json.loads(session["data"])
     for key in checkboxes: session_data["distplot_props"][key] = checkboxes[key]
     session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
-    
-    return price_delta_info, referenceLines_output, fig
+
+    output = {}
+    output["price_delta_info"] = price_delta_info
+    output["price_chart_lines"] = referenceLines_output
+    output["dist_chart"] = distplot
+    output["corr_chart"] = [corr_chart_data]
+
+    return output
 
 
 @callback(
