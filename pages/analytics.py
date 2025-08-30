@@ -21,6 +21,7 @@ import numpy as np
 from tinkoff.invest import CandleInterval
 
 import functions
+from functions import DeltaString
 
 dotenv.load_dotenv()
 TOKEN = os.getenv("INVEST_TOKEN")
@@ -70,13 +71,22 @@ def layout():
                         gap = "md",
                         align = "flex-end"
                     ),
-                    dmc.Box(
-                        id = "price_delta",
+                    dmc.Stack(
                         children = [
-                            dmc.Text(children = "", fz = "sm", fw = 500),
-                            dmc.Text(children = "", fz = "h2", fw = 650, ta = "right"),
+                            dmc.Text(id = "date_interval", children = "", fz = "sm", fw = 500),
+                            dmc.Flex(
+                                children = [
+                                    dmc.Text(id = "price_info", children = "", fz = "h2", fw = 650, display = "block"),
+                                    dmc.Text(id = "balance_info", children = "", fz = "h2", fw = 650, display = "none"),
+                                    dmc.ActionIcon(id = "info_switch", children = DashIconify(icon = "mingcute:transfer-4-line"), color = "blue.7")
+                                ],
+                                gap = "xs",
+                                align = "center"
+                            )
                         ],
-                        pt = 2
+                        pt = 2,
+                        align="flex-end",
+                        gap = 0
                     )
                 ],
                 style = {"display":"flex", "justify-content":"space-between"},
@@ -384,7 +394,17 @@ def update_chart_props(chart_data, referenceLines):
 
 @callback(
     output = {
-        "price_delta_info": Output("price_delta", "children"),
+        "delta_info": {
+            "date_interval": Output("date_interval", "children"),
+            "price": {
+                "info": Output("price_info", "children"),
+                "color": Output("price_info", "c"),
+            },
+            "balance": {
+                "info": Output("balance_info", "children"),
+                "color": Output("balance_info", "c"),
+            },
+        },
         "price_chart_lines": Output("price_chart", "referenceLines", allow_duplicate = True),
         "dist_chart": Output("dist_chart", "figure"),
         "corr_chart": Output("corr_chart", "data"),
@@ -405,7 +425,6 @@ def update_chart_props(chart_data, referenceLines):
 def slider_change_processing(input):
     if not input["slider_value"]: raise PreventUpdate
 
-
     #Подготовка данных
     candles_df = pd.DataFrame(input["price_chart_data"])
     candles_df = candles_df[(candles_df.index >= input["slider_value"][0]) & (candles_df.index <= input["slider_value"][1])]
@@ -416,16 +435,24 @@ def slider_change_processing(input):
     if checkboxes["rm_outliers"]: candles_df = functions.remove_outliers(candles_df, "vector")
     candles_df.reset_index(inplace=True)
 
-    
     #Информация о динамике изменения
-    date_interval = input["price_chart_data"][input["slider_value"][0]]["datetime"] + " - " + input["price_chart_data"][input["slider_value"][1]]["datetime"]
-    delta_string = functions.get_delta_string(input["price_chart_data"][input["slider_value"][0]]["open"], input["price_chart_data"][input["slider_value"][1]]["open"], "₽")
-    delta_color = functions.get_delta_color(delta_string)
+    start = input["price_chart_data"][input["slider_value"][0]]
+    end = input["price_chart_data"][input["slider_value"][1]]
+    date_interval = start["datetime"] + " - " + end["datetime"]
+    price_data = DeltaString(start["open"], end["open"], "₽")
+    balance_data = DeltaString(start["balance"], end["balance"], "₽")
 
-    price_delta_info = []
-    price_delta_info.append(dmc.Text(children = date_interval, fz = "sm", fw = 500))
-    price_delta_info.append(dmc.Text(children = delta_string, fz = "h2", fw = 650, c = delta_color, ta = "right"))
-
+    delta_info = {
+        "date_interval": date_interval,
+        "price": {
+            "info": price_data.info,
+            "color": price_data.color,
+        },
+        "balance": {
+            "info": balance_data.info,
+            "color": balance_data.color,
+        },
+    }
 
     #Установка границ интервала
     referenceLines_output = [line for line in input["price_chart_lines"] if "y" in line]
@@ -433,7 +460,6 @@ def slider_change_processing(input):
         {"x": input["price_chart_data"][input["slider_value"][0]]["datetime"]},
         {"x": input["price_chart_data"][input["slider_value"][1]]["datetime"]}
     ]
-
 
     #Получение данных для графика распределения
     distplot = ff.create_distplot(
@@ -448,7 +474,6 @@ def slider_change_processing(input):
     )
     distplot.update_layout(margin=dict(l=0, r=0, t=0, b=0), showlegend = False, height = 700)
 
-
     #Получение данных для графика корреляции
     vectors = functions.get_vectors(candles_df, input["vector_size"])
     vectors = vectors[input["vector_size"] - 1: -1]
@@ -460,14 +485,13 @@ def slider_change_processing(input):
     corr_chart_data["color"] = "blue.7"
     corr_chart_data["data"] = [{"vector": vector, "delta": delta} for vector, delta in zip(vectors, deltas)]
 
-
     #Возврат
     session_data = json.loads(session["data"])
     for key in checkboxes: session_data["distplot_props"][key] = checkboxes[key]
     session["data"] = json.dumps(session_data, cls = functions.NpEncoder)
 
     output = {}
-    output["price_delta_info"] = price_delta_info
+    output["delta_info"] = delta_info
     output["price_chart_lines"] = referenceLines_output
     output["dist_chart"] = distplot
     output["corr_chart"] = [corr_chart_data]
@@ -497,4 +521,25 @@ def set_candle(is_standard, interval, old_candle_value):
 
     return candle_select_disabled, new_candle_value
 
+@callback(
+    Output("price_info", "display"),
+    Output("balance_info", "display"),
+    Output("info_switch", "color"),
 
+    Input("info_switch", "n_clicks"),
+    State("info_switch", "color"),
+    prevent_initial_call = True
+)
+def change_display(click, switch_color):
+    if switch_color == "blue.7":
+        switch_color = "red.7"
+        price_display = "none"
+        balance_display = "block"
+    else:
+        switch_color = "blue.7"
+        price_display = "block"
+        balance_display = "none"
+
+    return price_display, balance_display, switch_color
+
+        

@@ -118,23 +118,29 @@ def get_share_selectdata():
 
 
 #Получить разницу по периоду
-def get_delta_string(start_price, end_price, unit):
-    precision = max(len(str(start_price).split(".")[-1]), len(str(end_price).split(".")[-1]))
-    abs_delta = math_round(abs(end_price - start_price), precision)
-    rel_delta = math_round((abs_delta / start_price) * 100, 2)
-    delta_string = str(abs_delta) + unit + " | " + str(rel_delta) + "%"
+class DeltaString():
+    def __init__(self, start_value, end_value, unit):
+        precision = max(len(str(start_value).split(".")[-1]), len(str(end_value).split(".")[-1]))
+        abs_delta = math_round(abs(end_value - start_value), precision)
+        rel_delta = math_round((abs_delta / start_value) * 100, 2)
+        info = str(abs_delta) + unit + " | " + str(rel_delta) + "%"
 
-    if start_price < end_price: delta_string = "+" + delta_string
-    elif start_price > end_price: delta_string = "-" + delta_string
+        if start_value < end_value:
+            self.__info = "+" + info
+            self.__color = "green.7"
+        elif start_value > end_value:
+            self.__info = "-" + info
+            self.__color = "red.7"
+        else:
+            self.__info = info
+            self.__color = "black"
 
-    return delta_string
+    @property
+    def info(self): return self.__info
 
-#Получить цвет текста разницы
-def get_delta_color(delta_string):
-    if delta_string[0] == "-": return "red.7"
-    elif delta_string[0] == "+": return "green.7"
-    
-    return "black"
+    @property
+    def color(self): return self.__color
+
 
 #Исключить выбросы по правилу трех сигм
 def remove_outliers(data_df, column):
